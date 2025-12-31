@@ -1,0 +1,25 @@
+[package]
+name = "taintAna"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "taint-ana"
+path = "src/main.rs"
+
+[[bin]]
+name = "cargo-taint-ana"
+path = "src/bin/cargo-taint-ana.rs"
+
+[dependencies]
+env_logger = "0.8.2"
+log = "0.4.11"
+shellwords = "1.1.0"
+serde_json = "1.0.81"
+serde = { version = "1.0", features = ["derive"] }
+
+[profile.dev]
+incremental = false
+
+[package.metadata.rust-analyzer]
+rustc_private=true
