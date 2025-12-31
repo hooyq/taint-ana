@@ -46,7 +46,67 @@ fn in_cargo_taint_ana() {
     // this target. The user gets to control what gets actually passed to taint-ana.
     let mut cmd = cargo();
     cmd.arg("build");
-    cmd.env("RUSTC_WRAPPER", "taint-ana");
+    
+    // Get the path to the taint-ana binary
+    let exe_name = if cfg!(windows) { "taint-ana.exe" } else { "taint-ana" };
+    
+    // Try multiple locations to find the binary
+    let wrapper_path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            // First, try same directory as cargo-taint-ana
+            exe.parent().and_then(|dir| {
+                let path = dir.join(exe_name);
+                if path.exists() { Some(path) } else { None }
+            })
+        })
+        .or_else(|| {
+            // Try in taintAna project's target directory
+            let mut path = std::env::current_dir().ok()?;
+            // Go up to find taintAna directory
+            loop {
+                let test_path = path.join("experiment").join("fn-signature-extractor")
+                    .join("taintAna").join("target").join("debug").join(exe_name);
+                if test_path.exists() {
+                    return Some(test_path);
+                }
+                let test_path = path.join("experiment").join("fn-signature-extractor")
+                    .join("taintAna").join("target").join("release").join(exe_name);
+                if test_path.exists() {
+                    return Some(test_path);
+                }
+                if !path.pop() {
+                    break;
+                }
+            }
+            None
+        })
+        .or_else(|| {
+            // Fallback: try current directory's target
+            let mut path = std::env::current_dir().ok()?;
+            path.push("target");
+            path.push("debug");
+            path.push(exe_name);
+            if path.exists() {
+                Some(path)
+            } else {
+                path.pop();
+                path.push("release");
+                path.push(exe_name);
+                if path.exists() {
+                    Some(path)
+                } else {
+                    None
+                }
+            }
+        })
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| {
+            eprintln!("Warning: Could not find taint-ana binary. Please build it first with: cargo build");
+            "taint-ana".to_string()
+        });
+    
+    cmd.env("RUSTC_WRAPPER", &wrapper_path);
     cmd.env("RUST_BACKTRACE", "full");
 
     // Pass TAINT_ANA_LOG if specified by the user. Default to info if not specified.

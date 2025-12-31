@@ -30,7 +30,7 @@ cargo install --path .
 在要分析的项目目录中运行：
 
 ```bash
-cargo taint-ana
+ cargo +nightly-2025-10-02 taint-ana
 ```
 
 或者直接使用 rustc wrapper：
