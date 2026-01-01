@@ -13,6 +13,7 @@ extern crate rustc_index;
 mod callbacks;
 mod state;
 mod detect;
+mod dfs;
 
 use log::debug;
 use rustc_session::config::ErrorOutputType;

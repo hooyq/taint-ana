@@ -1,6 +1,4 @@
 use std::collections::HashSet;
-use std::fs;
-use std::io;
 use std::sync::OnceLock;
 
 use rustc_middle::mir::{Body, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Terminator, TerminatorKind, BasicBlock, PlaceElem};
@@ -94,7 +92,7 @@ fn extract_local_from_place(place: &Place) -> Option<String> {
                 i += 1;
             }
 
-            ProjectionElem::Subtype(_)=>{}
+            //ProjectionElem::Subtype(_)=>{}
 
             PlaceElem::UnwrapUnsafeBinder(_) => {}
 
@@ -318,7 +316,7 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
         StatementKind::ConstEvalCounter => {}
         StatementKind::Nop => {}
         StatementKind::BackwardIncompatibleDropHint { .. } => {}
-        StatementKind::Deinit(_) => {}
+        //StatementKind::Deinit(_) => {}
     }
 }
 
@@ -602,25 +600,30 @@ fn drop_check(id_opt: Option<String>, manager: &mut BindingManager, terminator: 
 }
 
 //BlackList-----
-/// 从 blacklist.txt 文件加载黑名单（硬编码路径）
-/// 返回一个 HashSet，包含所有需要特殊处理的函数名子串
-fn load_blacklist() -> Result<HashSet<String>, io::Error> {
-    let content = fs::read_to_string("blacklist.txt")?;
-    let blacklist: HashSet<String> = content
-        .lines()
-        .map(|line| line.trim().to_string())
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .collect();
-    Ok(blacklist)
-}
-
-/// 获取黑名单（懒加载，第一次调用时读取文件）
+/// 获取黑名单（硬编码在代码中）
+/// 包含所有需要特殊处理的函数名子串
 fn get_blacklist() -> &'static HashSet<String> {
     BLACKLIST.get_or_init(|| {
-        load_blacklist().unwrap_or_else(|e| {
-            eprintln!("Warning: Failed to load blacklist.txt: {}. Using empty blacklist.", e);
-            HashSet::new()
-        })
+        let mut blacklist = HashSet::new();
+        
+        // 原始指针操作
+        blacklist.insert("as_mut_ptr".to_string());
+        blacklist.insert("as_ptr".to_string());
+        
+        // 引用转换
+        blacklist.insert("as_ref".to_string());
+        blacklist.insert("as_mut".to_string());
+        
+        // 原始指针构造
+        blacklist.insert("from_raw_parts".to_string());
+        blacklist.insert("into_raw".to_string());
+        blacklist.insert("from_raw".to_string());
+        blacklist.insert("_as_raw".to_string());
+        
+        // 解引用操作
+        blacklist.insert("::deref".to_string());
+        
+        blacklist
     })
 }
 

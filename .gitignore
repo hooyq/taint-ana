@@ -7,7 +7,7 @@
 /dataSources/
 /dataSources.local.xml
 # Rust
-/target/
+target/
 
 # JetBrains IDE
 .idea/
