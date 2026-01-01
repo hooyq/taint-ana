@@ -7,9 +7,12 @@ extern crate rustc_driver;
 extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_session;
+extern crate rustc_span;
+extern crate rustc_index;
 
 mod callbacks;
 mod state;
+mod detect;
 
 use log::debug;
 use rustc_session::config::ErrorOutputType;

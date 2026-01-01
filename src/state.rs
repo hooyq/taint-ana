@@ -44,7 +44,7 @@ impl LocalState {
     }
 
     pub fn find_root_from_id(id: &str, states: &HashMap<String, Self>) -> Option<(String, Vec<String>)> {
-        let start_state = match states.get(id) {
+        let _start_state = match states.get(id) {
             Some(s) => s,
             None => return None,
         };

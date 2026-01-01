@@ -15,18 +15,20 @@ path = "src/bin/cargo-taint-ana.rs"
 env_logger = "0.8.2"
 log = "0.4.11"
 
+[dev-dependencies]
+rustc_middle = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_middle" }
+rustc_data_structures = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_data_structures" }
+rustc_index = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_index" }
+rustc_session = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_session" }
+rustc_driver = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_driver" }
+rustc_hir = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_hir" }
+rustc_interface = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_interface" }
+rustc_span = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_span" }
 
 [profile.dev]
 incremental = false
 
-[dev-dependencies]
-#rustc_middle = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_middle" }
-#rustc_data_structures = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_data_structures" }
-#rustc_index = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_index" }
-#rustc_session = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_session" }
-#rustc_driver = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_driver" }
-#rustc_hir = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_hir" }
-#rustc_interface = { path = "C:/Users/hyqho/Workspace/Rust/analysis/rust/compiler/rustc_interface" }
+
 
 [package.metadata.rust-analyzer]
 rustc_private=true

@@ -159,7 +159,6 @@ fn get_mir_body<'tcx>(
 }
 
 /// Traverse all basic blocks in a function
-/// TODO: 实现具体的分析逻辑
 fn traverse_basic_blocks<'tcx>(
     tcx: TyCtxt<'tcx>,
     instance: Instance<'tcx>,
@@ -170,17 +169,31 @@ fn traverse_basic_blocks<'tcx>(
     
     info!("  Function: {} - Found {} basic blocks", name, body.basic_blocks.len());
     
+    // Create a BindingManager for this function
+    let mut manager = crate::state::BindingManager::new(&name);
+    
+    // Register all locals
+    for (local_idx, _local_decl) in body.local_decls.iter_enumerated() {
+        let id_str = format!("_{}", local_idx.as_usize());
+        manager.register(id_str, None);
+    }
+    
     // Traverse each basic block
+    // TODO: Implement proper DFS traversal with state management for branches
     for (bb_idx, bb) in body.basic_blocks.iter_enumerated() {
         debug!("    BasicBlock[{:?}]:", bb_idx);
         debug!("      Statements: {}", bb.statements.len());
-        debug!("      Terminator: {:?}", bb.terminator.as_ref().map(|t| &t.kind));
         
-        // TODO: 在这里实现具体的分析逻辑
-        // - 分析每个 statement
-        // - 分析 terminator
-        // - 构建控制流图
-        // - 进行数据流分析等
+        // Analyze each statement
+        for stmt in &bb.statements {
+            crate::detect::detect_stmt(stmt, &mut manager, bb_idx);
+        }
+        
+        // Analyze terminator
+        if let Some(ref terminator) = bb.terminator {
+            debug!("      Terminator: {:?}", &terminator.kind);
+            crate::detect::detect_terminator(terminator, &mut manager, body, tcx, bb_idx);
+        }
     }
 }
 
