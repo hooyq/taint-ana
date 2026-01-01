@@ -95,20 +95,23 @@ impl TaintAnaCallbacks {
         // Process each function: extract signature and traverse basic blocks
         let typing_env = TypingEnv::fully_monomorphized();
         for instance in instances {
-            // Extract function signature (simplified)
-            let def_id = instance.def_id();
-            let name = tcx.def_path_str_with_args(def_id, instance.args);
-            info!("Processing function: {}", name);
-            
-            // TODO: 完善函数签名提取
-            // - 提取完整的参数类型列表
-            // - 提取返回类型
-            // - 检测 unsafe 和 async 函数
+            // Extract function signature
+            if let Some(signature) = extract_signature(tcx, instance) {
+                info!("Processing function: {}", signature);
+                debug!("  Signature details: {:?}", signature);
+            } else {
+                // Fallback: use simple name extraction if signature extraction fails
+                let def_id = instance.def_id();
+                let name = tcx.def_path_str_with_args(def_id, instance.args);
+                info!("Processing function: {} (signature extraction failed)", name);
+            }
             
             // Try to get MIR body and traverse basic blocks
+            let def_id = instance.def_id();
             if let Some(body) = get_mir_body(tcx, instance, typing_env) {
                 traverse_basic_blocks(tcx, instance, &body);
             } else {
+                let name = tcx.def_path_str_with_args(def_id, instance.args);
                 debug!("Function {} has no MIR body", name);
             }
         }
@@ -187,7 +190,6 @@ fn traverse_basic_blocks<'tcx>(
 /// - 提取完整的参数类型
 /// - 提取返回类型
 /// - 检测 unsafe 和 async
-#[allow(dead_code)]
 fn extract_signature<'tcx>(
     tcx: TyCtxt<'tcx>,
     instance: Instance<'tcx>,

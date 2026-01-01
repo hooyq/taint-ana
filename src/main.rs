@@ -9,6 +9,7 @@ extern crate rustc_middle;
 extern crate rustc_session;
 
 mod callbacks;
+mod state;
 
 use log::debug;
 use rustc_session::config::ErrorOutputType;
@@ -76,8 +77,10 @@ fn main() {
             }
         }
 
+
         let mut callbacks = callbacks::TaintAnaCallbacks::new();
         debug!("rustc_command_line_arguments {rustc_command_line_arguments:?}");
+        //入口
         rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
     });
     std::process::exit(exit_code);
