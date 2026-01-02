@@ -61,3 +61,8 @@ async fn my_crate::async_function() -> i32
 - 需要 nightly Rust 工具链
 - 需要设置 RUST_SYSROOT 环境变量或使用 rustup
 
+
+## 单文件 (debug用)
+
+- cargo run --bin taint-ana -- path
+- cargo run --bin taint-ana -- .\src\toys\example.rs

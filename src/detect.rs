@@ -127,7 +127,7 @@ fn extract_base_local_from_operand(operand: &Operand) -> Option<String> {
 /// 全局黑名单（懒加载，只读取一次）
 static BLACKLIST: OnceLock<HashSet<String>> = OnceLock::new();
 
-pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: BasicBlock) {
+pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: BasicBlock, fn_name: &str, body: &Body<'_>) {
     match &stmt.kind {
         StatementKind::Assign(box(left, rValue)) => {
             let left_id = extract_base_local_from_place(left);
@@ -175,7 +175,7 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                             // 注意：如果这是重新赋值的一部分（左值刚被恢复状态），
                             // 右值的 use_check 应该在重新赋值检测之后，所以这里应该没问题
                             let base_id = extract_base_local_from_place(&place);
-                            use_check_stmt(base_id, manager, stmt, bb);
+                            use_check_stmt(base_id, manager, stmt, bb, fn_name, body);
                         }
                         Operand::Move(place) => {
                             // Move 操作：提取 local ID（支持多层嵌套）
@@ -185,7 +185,7 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                             // 注意：如果这是重新赋值的一部分（左值刚被恢复状态），
                             // 右值的 use_check 应该在重新赋值检测之后，所以这里应该没问题
                             let base_id = extract_base_local_from_place(&place);
-                            use_check_stmt(base_id.clone(), manager, stmt, bb);
+                            use_check_stmt(base_id.clone(), manager, stmt, bb, fn_name, body);
                             
                             // 确保 source_id 已注册
                             if let Some(ref source) = source_id {
@@ -218,13 +218,13 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                     // Repeat: use op (e.g., [x; 3]，重复 use x)
                     // 可能涉及字段访问，使用 extract 更精确
                     let id_opt = extract_local_from_operand(&op);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::Ref(_, _, place) => {
                     // Ref: use place (借用，读取 source)
                     // 对于 use_check，需要检查基础 local
                     let base_id = extract_base_local_from_place(&place);
-                    use_check_stmt(base_id.clone(), manager, stmt, bb);
+                    use_check_stmt(base_id.clone(), manager, stmt, bb, fn_name, body);
                     
                     // 提取 local ID（支持多层嵌套）
                     let source_id = extract_local_from_place(&place);
@@ -247,21 +247,21 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                 Rvalue::RawPtr(_, place) => {
                     // RawPtr: 获取原始指针
                     let id_opt = extract_local_from_place(&place);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::Cast(_, op, _) => {
                     // Cast: use op (e.g., a = b as i32)
                     // 可能涉及字段访问，使用 extract 更精确
                     let id_opt = extract_local_from_operand(&op);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::BinaryOp(_, box (op1, op2)) => {
                     // BinaryOp (e.g., a = b + c): use op1 和 op2
                     // 可能涉及字段访问，使用 extract 更精确
                     let id1_opt = extract_local_from_operand(&op1);
-                    use_check_stmt(id1_opt, manager, stmt, bb);
+                    use_check_stmt(id1_opt, manager, stmt, bb, fn_name, body);
                     let id2_opt = extract_local_from_operand(&op2);
-                    use_check_stmt(id2_opt, manager, stmt, bb);
+                    use_check_stmt(id2_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::NullaryOp(_, _) => {
                     // NullaryOp (e.g., BoxNew, Null): 无 Operand/Place use
@@ -270,37 +270,37 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                     // UnaryOp (e.g., a = -b): use op
                     // 可能涉及字段访问，使用 extract 更精确
                     let id_opt = extract_local_from_operand(&op);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::Discriminant(place) => {
                     // Discriminant: use place (enum 标签)
                     let id_opt = extract_base_local_from_place(&place);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::Aggregate(_, fields) => {
                     // Aggregate (struct/tuple/array init): fields 是 Vec<Operand>，每个可能 use
                     // 可能涉及字段访问，使用 extract 更精确
                     for field in fields {
                         let id_opt = extract_local_from_operand(&field);
-                        use_check_stmt(id_opt, manager, stmt, bb);
+                        use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                     }
                 }
                 Rvalue::ShallowInitBox(op, _) => {
                     // ShallowInitBox: use op (box init)
                     // 可能涉及字段访问，使用 extract 更精确
                     let id_opt = extract_local_from_operand(&op);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::CopyForDeref(place) => {
                     // CopyForDeref: use place (解引用 copy)
                     // 可能涉及字段访问，使用 extract 更精确
                     let id_opt = extract_local_from_place(&place);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
                 Rvalue::WrapUnsafeBinder(op, _) => {
                     // WrapUnsafeBinder: 包装不安全的 binder
                     let id_opt = extract_local_from_operand(&op);
-                    use_check_stmt(id_opt, manager, stmt, bb);
+                    use_check_stmt(id_opt, manager, stmt, bb, fn_name, body);
                 }
             }
         }
@@ -327,7 +327,7 @@ fn is_debug_enabled() -> bool {
 
 /// 统一的 use 检查函数（用于 Statement）
 /// 检查变量是否已被 drop，如果已 drop 则返回错误并打印 span
-pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt: &Statement<'_>, bb: BasicBlock) -> Result<(), String> {
+pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt: &Statement<'_>, bb: BasicBlock, fn_name: &str, body: &Body<'_>) -> Result<(), String> {
     if let Some(ref id) = id_opt {
         // 确保已注册
         manager.register(id.clone(), None);
@@ -345,16 +345,9 @@ pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt
         }
 
         if manager.is_dropped(id) {
-            let span = stmt.source_info.span;
-            println!("❌ Use after drop at {:?}: local {} (stmt: {:?})", span, id, stmt.kind);
-            println!("BasicBlock is {:?}", bb);
-
-            // 打印调试信息
-            if let Some((root_id, members)) = manager.find_group(id) {
-                println!("   Group root: {}, members: {:?}", root_id, members);
-            }
-
-            return Err(format!("Use after drop at {:?}: local {}", span, id));
+            // 使用新的报告函数
+            crate::report::report_use_after_drop_stmt(fn_name, stmt, bb, id, body, manager);
+            return Err(format!("Use after drop: {}", id));
         }
     }
     Ok(())
@@ -362,16 +355,15 @@ pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt
 
 /// 统一的 use 检查函数（用于 Terminator）
 /// 检查变量是否已被 drop，如果已 drop 则返回错误并打印 span
-pub fn use_check_term(id_opt: Option<String>, manager: &mut BindingManager, term: &Terminator<'_>, bb: BasicBlock) -> Result<(), String> {
+pub fn use_check_term(id_opt: Option<String>, manager: &mut BindingManager, term: &Terminator<'_>, bb: BasicBlock, fn_name: &str, body: &Body<'_>) -> Result<(), String> {
     if let Some(ref id) = id_opt {
         // 确保已注册
         manager.register(id.clone(), None);
 
         if manager.is_dropped(id) {
-            let span = term.source_info.span;
-            println!("❌Use after drop at {:?}: local {}", span, id);
-            println!("BasicBlock is {:?}", bb);
-            return Err(format!("Use after drop at {:?}: local {}", span, id));
+            // 使用新的报告函数
+            crate::report::report_use_after_drop_term(fn_name, term, bb, id, body, manager);
+            return Err(format!("Use after drop: {}", id));
         }
     }
     Ok(())
@@ -382,7 +374,8 @@ pub fn detect_terminator<'tcx>(
     manager: &mut BindingManager,
     body: &Body<'tcx>,
     tcx: TyCtxt<'tcx>,
-    bb: BasicBlock
+    bb: BasicBlock,
+    fn_name: &str
 ) {
     match &term.kind {
         TerminatorKind::Goto { .. } => {
@@ -391,7 +384,7 @@ pub fn detect_terminator<'tcx>(
         TerminatorKind::SwitchInt { discr, .. } => {
             // SwitchInt: 基于整数值的条件跳转，discr 被使用
             let id_opt = extract_base_local_from_operand(discr);
-            use_check_term(id_opt, manager, term, bb);
+            use_check_term(id_opt, manager, term, bb, fn_name, body);
         }
         TerminatorKind::UnwindResume => {
             // UnwindResume: 异常恢复，不涉及 use/drop
@@ -405,7 +398,7 @@ pub fn detect_terminator<'tcx>(
             // 返回值在返回时会被 move，所以需要检查它是否已被 drop
             // 注意：返回值总是存储在 local 0（_0）
             let return_id = Some("_0".to_string());  // 返回值存储在 local 0
-            use_check_term(return_id, manager, term, bb);
+            use_check_term(return_id, manager, term, bb, fn_name, body);
         }
         TerminatorKind::Unreachable => {
             // Unreachable: 不可达代码，不涉及 use/drop
@@ -487,14 +480,14 @@ pub fn detect_terminator<'tcx>(
                     let place = extract_base_local_from_operand(&arg.node);
                     // 在检查之前，确保状态是最新的
                     // 如果这个 local 在同一个基本块中被重新赋值，状态应该已经恢复了
-                    use_check_term(place, manager, term, bb);
+                    use_check_term(place, manager, term, bb, fn_name, body);
                 }
             }
         }
         TerminatorKind::Assert { cond, .. } => {
             // Assert: 断言检查，cond 被使用
             let id_opt = extract_base_local_from_operand(cond);
-            use_check_term(id_opt, manager, term, bb);
+            use_check_term(id_opt, manager, term, bb, fn_name, body);
         }
         TerminatorKind::InlineAsm { .. } => {
             // InlineAsm: 内联汇编，需要检查所有操作数

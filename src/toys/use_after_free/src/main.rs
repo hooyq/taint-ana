@@ -1,5 +1,6 @@
 use std::mem;
 
+mod example;
 struct Buffer {
     data: Vec<u8>,
 }

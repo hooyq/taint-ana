@@ -14,6 +14,7 @@ mod callbacks;
 mod state;
 mod detect;
 mod dfs;
+mod report;
 
 use log::debug;
 use rustc_session::config::ErrorOutputType;

@@ -110,9 +110,35 @@ fn get_mir_body<'tcx>(
     instance: Instance<'tcx>,
     _typing_env: TypingEnv<'tcx>,
 ) -> Option<&'tcx Body<'tcx>> {
+    let def_id = instance.def_id();
+    
     // Only process instances in local crate
-    if instance.def_id().krate != LOCAL_CRATE {
+    if def_id.krate != LOCAL_CRATE {
         return None;
+    }
+    
+    // Additional check: Filter out external dependencies by source file path
+    // This handles cases where generic instantiations or inlined functions
+    // from external crates appear in the local crate's codegen units
+    let span = tcx.def_span(def_id);
+    if !span.is_dummy() {
+        let source_file = tcx.sess.source_map().lookup_source_file(span.lo());
+        
+        if let Some(file_path) = source_file.name.prefer_local().to_str() {
+            // Skip files from .cargo registry (external dependencies)
+            if file_path.contains(".cargo") && file_path.contains("registry") {
+                debug!("Skipping external dependency: {} (source: {})", 
+                       tcx.def_path_str(def_id), file_path);
+                return None;
+            }
+            
+            // Skip files from target directory (build artifacts)
+            if file_path.contains("\\target\\") || file_path.contains("/target/") {
+                debug!("Skipping target directory file: {} (source: {})", 
+                       tcx.def_path_str(def_id), file_path);
+                return None;
+            }
+        }
     }
     
     // Get the MIR body for this instance
@@ -127,6 +153,9 @@ fn analyze_function<'tcx>(
 ) {
     let def_id = instance.def_id();
     let name = tcx.def_path_str(def_id);
+    
+    // Report function analysis start
+    crate::report::report_function_start(&name, body);
     
     // Create a BindingManager for this function
     let mut manager = crate::state::BindingManager::new(&name);
@@ -148,14 +177,17 @@ fn analyze_function<'tcx>(
             
             // Analyze each statement in this basic block
             for stmt in &bb.statements {
-                crate::detect::detect_stmt(stmt, mgr, bb_idx);
+                crate::detect::detect_stmt(stmt, mgr, bb_idx, &name, body);
             }
             
             // Analyze terminator
             if let Some(ref terminator) = bb.terminator {
-                crate::detect::detect_terminator(terminator, mgr, body, tcx, bb_idx);
+                crate::detect::detect_terminator(terminator, mgr, body, tcx, bb_idx, &name);
             }
         },
     );
+    
+    // Report function analysis end
+    crate::report::report_function_end(&name);
 }
 
