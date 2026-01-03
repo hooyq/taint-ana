@@ -92,7 +92,7 @@ fn extract_local_from_place(place: &Place) -> Option<String> {
                 i += 1;
             }
 
-            //ProjectionElem::Subtype(_)=>{}
+            ProjectionElem::Subtype(_)=>{}
 
             PlaceElem::UnwrapUnsafeBinder(_) => {}
 
@@ -316,7 +316,7 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
         StatementKind::ConstEvalCounter => {}
         StatementKind::Nop => {}
         StatementKind::BackwardIncompatibleDropHint { .. } => {}
-        //StatementKind::Deinit(_) => {}
+        StatementKind::Deinit(_) => {}
     }
 }
 

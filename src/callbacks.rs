@@ -11,6 +11,7 @@ use rustc_hir::def_id::LOCAL_CRATE;
 use rustc_interface::interface;
 use rustc_middle::mir::Body;
 use rustc_middle::mir::mono::MonoItem;
+use rustc_middle::ty;
 use rustc_middle::ty::{Instance, TyCtxt, TypingEnv};
 
 pub struct TaintAnaCallbacks {
@@ -74,41 +75,77 @@ impl TaintAnaCallbacks {
             return;
         }
         
-        // Collect all function instances
-        let cgus = tcx.collect_and_partition_mono_items(()).codegen_units;
-        let instances: Vec<Instance<'tcx>> = cgus
-            .iter()
-            .flat_map(|cgu| {
-                cgu.items().iter().filter_map(|(mono_item, _)| {
-                    if let MonoItem::Fn(instance) = mono_item {
-                        Some(*instance)
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect();
+        // Collect ALL function definitions in LOCAL crate (including dead code)
+        // Use mir_keys() to get all LocalDefId that have MIR
+        let mir_keys = tcx.mir_keys(());
         
-        debug!("Analyzing {} functions", instances.len());
+        debug!("Found {} items with MIR", mir_keys.len());
         
-        // Process each function with DFS traversal
         let typing_env = TypingEnv::fully_monomorphized();
-        for instance in instances {
-            // Try to get MIR body and perform analysis
-            if let Some(body) = get_mir_body(tcx, instance, typing_env) {
-                analyze_function(tcx, instance, body);
+        let mut analyzed_count = 0;
+        
+        // Process each function definition
+        for &local_def_id in mir_keys.iter() {
+            let def_id = local_def_id.to_def_id();
+            
+            // IMPORTANT: Skip if not in local crate (safety check)
+            if def_id.krate != LOCAL_CRATE {
+                continue;
+            }
+            
+            // Filter by source file path early to avoid processing external dependencies
+            let span = tcx.def_span(def_id);
+            if !span.is_dummy() {
+                let source_file = tcx.sess.source_map().lookup_source_file(span.lo());
+                let file_path = source_file.name.prefer_local().to_string();
+                
+                // Skip external dependencies
+                if file_path.contains(".cargo") && file_path.contains("registry") {
+                    continue;
+                }
+                
+                // Skip target directory
+                if file_path.contains("\\target\\") || file_path.contains("/target/") {
+                    continue;
+                }
+            }
+            
+            // Check if this is a function (not a const, static, etc.)
+            if !matches!(tcx.def_kind(def_id), rustc_hir::def::DefKind::Fn 
+                                              | rustc_hir::def::DefKind::AssocFn
+                                              | rustc_hir::def::DefKind::Closure) {
+                continue;
+            }
+            
+            // Directly use optimized_mir instead of trying to resolve instances
+            // This avoids issues with generic parameters
+            let body = tcx.optimized_mir(def_id);
+            
+            // Create a simple instance for reporting purposes
+            match Instance::try_resolve(tcx, typing_env, def_id, ty::List::empty()) {
+                Ok(Some(instance)) => {
+                    analyze_function(tcx, instance, body);
+                    analyzed_count += 1;
+                }
+                Ok(None) => {
+                    // For items we can't resolve (e.g., generic functions without substitution),
+                    // we can still analyze them using a monomorphic instance
+                    debug!("Could not resolve instance for: {}, skipping", tcx.def_path_str(def_id));
+                }
+                Err(e) => {
+                    debug!("Error resolving instance for {}: {:?}", tcx.def_path_str(def_id), e);
+                }
             }
         }
         
-        debug!("Analysis complete");
+        debug!("Analysis complete: analyzed {} functions", analyzed_count);
     }
 }
 
-/// Get MIR body for an instance
-fn get_mir_body<'tcx>(
+/// Get MIR body for an instance (filters out external dependencies)
+fn get_mir_body_all<'tcx>(
     tcx: TyCtxt<'tcx>,
     instance: Instance<'tcx>,
-    _typing_env: TypingEnv<'tcx>,
 ) -> Option<&'tcx Body<'tcx>> {
     let def_id = instance.def_id();
     
@@ -123,21 +160,20 @@ fn get_mir_body<'tcx>(
     let span = tcx.def_span(def_id);
     if !span.is_dummy() {
         let source_file = tcx.sess.source_map().lookup_source_file(span.lo());
+        let file_path = source_file.name.prefer_local().to_string();
         
-        if let Some(file_path) = source_file.name.prefer_local().to_str() {
-            // Skip files from .cargo registry (external dependencies)
-            if file_path.contains(".cargo") && file_path.contains("registry") {
-                debug!("Skipping external dependency: {} (source: {})", 
-                       tcx.def_path_str(def_id), file_path);
-                return None;
-            }
-            
-            // Skip files from target directory (build artifacts)
-            if file_path.contains("\\target\\") || file_path.contains("/target/") {
-                debug!("Skipping target directory file: {} (source: {})", 
-                       tcx.def_path_str(def_id), file_path);
-                return None;
-            }
+        // Skip files from .cargo registry (external dependencies)
+        if file_path.contains(".cargo") && file_path.contains("registry") {
+            debug!("Skipping external dependency: {} (source: {})", 
+                   tcx.def_path_str(def_id), file_path);
+            return None;
+        }
+        
+        // Skip files from target directory (build artifacts)
+        if file_path.contains("\\target\\") || file_path.contains("/target/") {
+            debug!("Skipping target directory file: {} (source: {})", 
+                   tcx.def_path_str(def_id), file_path);
+            return None;
         }
     }
     
