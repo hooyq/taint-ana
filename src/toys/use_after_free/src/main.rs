@@ -1,6 +1,7 @@
 use std::mem;
 
 mod example;
+mod lockbud;
 struct Buffer {
     data: Vec<u8>,
 }

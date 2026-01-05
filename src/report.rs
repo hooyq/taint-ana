@@ -31,7 +31,7 @@ pub fn report_function_start(fn_name: &str, body: &Body) {
 /// Output function analysis end
 pub fn report_function_end(fn_name: &str) {
     if is_info_enabled() {
-        println!("✅ 完成分析: {}\n", fn_name);
+        //println!("✅ 完成分析: {}\n", fn_name);
     }
 }
 
@@ -59,7 +59,7 @@ pub fn report_use_after_drop_stmt(
     print_local_info(body, local_id);
     
     // Print binding group information
-    print_drop_path(manager, local_id);
+    print_drop_path(manager, local_id, body);
     
     // Display basic block context
     print_basic_block_context(body, bb);
@@ -93,7 +93,7 @@ pub fn report_use_after_drop_term(
     print_local_info(body, local_id);
     
     // Print binding group information
-    print_drop_path(manager, local_id);
+    print_drop_path(manager, local_id, body);
     
     // Display basic block context
     print_basic_block_context(body, bb);
@@ -135,7 +135,7 @@ fn print_local_info(body: &Body, local_id: &str) {
 }
 
 /// Display variable's drop path tracking
-fn print_drop_path(manager: &mut BindingManager, local_id: &str) {
+fn print_drop_path(manager: &mut BindingManager, local_id: &str, body: &Body) {
     println!("│");
     println!("│ 📊 变量状态追踪:");
     println!("│   当前状态: dropped={}", manager.is_dropped(local_id));
@@ -143,6 +143,41 @@ fn print_drop_path(manager: &mut BindingManager, local_id: &str) {
     if let Some((root_id, members)) = manager.find_group(local_id) {
         println!("│   绑定组根: {}", root_id);
         println!("│   组内成员: {:?}", members);
+        
+        // 显示drop位置信息
+        if let Some(drop_info) = crate::state::LocalState::get_drop_info(&root_id, &manager.states) {
+            println!("│");
+            println!("│ 🚨 Drop位置追踪:");
+            print_drop_info(&drop_info, body);
+        }
+    }
+}
+
+/// 打印drop位置的详细信息
+fn print_drop_info(drop_info: &crate::state::DropInfo, body: &Body) {
+    println!("│   被Drop变量: {}", drop_info.dropped_by);
+    println!("│   所在函数: {}", drop_info.function_name);
+    
+    match &drop_info.location {
+        crate::state::DropLocation::Terminator { bb, span, kind } => {
+            println!("│   Drop类型: {:?}", kind);
+            println!("│   基本块: {:?}", bb);
+            println!("│   源码位置: {:?}", span);
+            
+            // 显示该BasicBlock的上下文（可选）
+            if let Some(block) = body.basic_blocks.get(*bb) {
+                println!("│   Drop上下文:");
+                if let Some(ref term) = block.terminator {
+                    println!("│     {:?}", term.kind);
+                }
+            }
+        }
+        crate::state::DropLocation::Statement { bb, span, stmt_index } => {
+            println!("│   Drop类型: Statement");
+            println!("│   基本块: {:?}", bb);
+            println!("│   语句索引: {}", stmt_index);
+            println!("│   源码位置: {:?}", span);
+        }
     }
 }
 

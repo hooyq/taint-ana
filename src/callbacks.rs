@@ -181,6 +181,21 @@ fn get_mir_body_all<'tcx>(
     Some(tcx.instance_mir(instance.def))
 }
 
+/// Get DFS configuration - configured directly in code
+fn get_dfs_config() -> crate::dfs::DfsConfig {
+    // 直接在这里配置参数
+    crate::dfs::DfsConfig {
+        k_predecessor: 2,        // 设置 k 值：0=不敏感, 1-3=推荐, >3=高精度
+        max_visits_per_block: 10, // 单个 block 最大访问次数
+    }
+    
+    // 如果需要不同的配置，直接修改上面的数值即可
+    // 例如：
+    // - 快速分析: k_predecessor: 0, max_visits_per_block: 10
+    // - 平衡模式: k_predecessor: 2, max_visits_per_block: 10
+    // - 高精度: k_predecessor: 3, max_visits_per_block: 20
+}
+
 /// Analyze a function using DFS traversal with state management
 fn analyze_function<'tcx>(
     tcx: TyCtxt<'tcx>,
@@ -202,13 +217,17 @@ fn analyze_function<'tcx>(
         manager.register(id_str, None);
     }
     
+    // Get DFS configuration from environment
+    let config = get_dfs_config();
+    
     // Use DFS traversal with state management for branches
     use rustc_middle::mir::START_BLOCK;
-    crate::dfs::dfs_visit_with_manager(
+    let stats = crate::dfs::dfs_visit_with_manager_ex(
         body,
         START_BLOCK,
         &mut manager,
-        &mut |bb_idx, mgr| {
+        config,
+        &mut |bb_idx, mgr, _ctx| {
             let bb = &body.basic_blocks[bb_idx];
             
             // Analyze each statement in this basic block
@@ -223,7 +242,28 @@ fn analyze_function<'tcx>(
         },
     );
     
+    // Print DFS statistics (可选：注释掉这行以禁用统计输出)
+    // print_dfs_stats(&name, &stats);
+    
     // Report function analysis end
     crate::report::report_function_end(&name);
+}
+
+/// Print DFS statistics
+fn print_dfs_stats(func_name: &str, stats: &crate::dfs::DfsStats) {
+    println!("\n=== DFS Statistics for {} ===", func_name);
+    println!("  Total visit attempts: {}", stats.total_visit_attempts);
+    println!("  Successful visits: {}", stats.successful_visits);
+    println!("  Skipped (duplicate path): {}", stats.skipped_duplicate_path);
+    println!("  Skipped (max visits): {}", stats.skipped_max_visits);
+    println!("  Unique paths explored: {}", stats.unique_paths);
+    println!("  Unique blocks visited: {}", stats.unique_blocks);
+    
+    // 计算路径爆炸因子
+    if stats.unique_blocks > 0 {
+        let explosion_factor = stats.unique_paths as f64 / stats.unique_blocks as f64;
+        println!("  Path explosion factor: {:.2}x", explosion_factor);
+    }
+    println!("================================\n");
 }
 

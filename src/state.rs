@@ -1,4 +1,43 @@
 use std::collections::HashMap;
+use rustc_middle::mir::BasicBlock;
+use rustc_span::Span;
+
+/// Drop操作的位置信息
+#[derive(Debug, Clone)]
+pub struct DropInfo {
+    /// 哪个变量ID触发了这次drop
+    pub dropped_by: String,
+    /// drop发生的位置
+    pub location: DropLocation,
+    /// 所在函数名
+    pub function_name: String,
+}
+
+/// Drop位置的具体类型
+#[derive(Debug, Clone)]
+pub enum DropLocation {
+    /// Statement中的操作（目前没有，但预留）
+    Statement { 
+        bb: BasicBlock, 
+        span: Span,
+        stmt_index: usize,
+    },
+    /// Terminator中的Drop
+    Terminator { 
+        bb: BasicBlock, 
+        span: Span,
+        kind: DropTerminatorKind,
+    },
+}
+
+/// Terminator中drop的具体类型
+#[derive(Debug, Clone)]
+pub enum DropTerminatorKind {
+    /// MIR的Drop terminator（自动drop）
+    DropTerminator,
+    /// 显式调用drop函数（如std::mem::drop）
+    DropFunctionCall { function_name: String },
+}
 
 /// LocalState 使用 String 作为 ID，支持多层嵌套（如 "_1.3.4.5"）
 /// 
@@ -29,6 +68,8 @@ pub struct LocalState {
     /// Union-Find 的 rank（树的高度上界），用于优化合并操作
     /// 初始值为 0，只在两个 rank 相等的根合并时自动增长
     rank: u32,
+    /// 记录该变量/组被drop的位置信息
+    pub(crate) drop_info: Option<DropInfo>,
 }
 
 impl LocalState {
@@ -40,6 +81,7 @@ impl LocalState {
             is_dropped: false,
             parent: local_id,
             rank: 0,
+            drop_info: None,
         }
     }
 
@@ -79,6 +121,25 @@ impl LocalState {
 
     pub fn get_root_dropped(root_id: &str, states: &HashMap<String, LocalState>) -> bool {
         states.get(root_id).map_or(false, |r| r.is_dropped)
+    }
+
+    /// 设置root的drop_info
+    pub fn set_drop_info(
+        root_id: &str, 
+        states: &mut HashMap<String, LocalState>, 
+        drop_info: Option<DropInfo>
+    ) {
+        if let Some(root) = states.get_mut(root_id) {
+            root.drop_info = drop_info;
+        }
+    }
+    
+    /// 获取root的drop_info
+    pub fn get_drop_info(
+        root_id: &str, 
+        states: &HashMap<String, LocalState>
+    ) -> Option<DropInfo> {
+        states.get(root_id).and_then(|r| r.drop_info.clone())
     }
 
     /// 只读获取根的 rank 和 root（用于 bind 决定方向，无借用）
@@ -201,6 +262,21 @@ impl BindingManager {
         }
     }
 
+    /// Drop一个组，并记录drop位置信息
+    pub fn idrop_group_with_info(&mut self, id: &str, drop_info: DropInfo) {
+        if !self.states.contains_key(id) {
+            return;
+        }
+        let (root_id, path) = match LocalState::find_root_from_id(id, &self.states) {
+            Some(p) => p,
+            None => return,
+        };
+        LocalState::compress_path(&mut self.states, &path, &root_id);
+        LocalState::set_root_dropped(&root_id, &mut self.states, true);
+        // 记录drop信息到root
+        LocalState::set_drop_info(&root_id, &mut self.states, Some(drop_info));
+    }
+
     /// 恢复 local 的 drop 状态（用于重新赋值场景）
     pub fn undrop_group(&mut self, id: &str) {
         if !self.states.contains_key(id) {
@@ -213,6 +289,8 @@ impl BindingManager {
         {
             LocalState::compress_path(&mut self.states, &path, &root_id);
             LocalState::set_root_dropped(&root_id, &mut self.states, false);
+            // 清除drop信息
+            LocalState::set_drop_info(&root_id, &mut self.states, None);
         }
     }
 
@@ -614,5 +692,124 @@ mod tests {
         // 其中一个根的 rank 应该增加（取决于实现细节）
         // 这里我们主要验证绑定成功
         assert!(new_rank1 >= initial_rank1);
+    }
+
+    /// 测试13: drop_info追踪
+    #[test]
+    fn test_drop_info_tracking() {
+        use rustc_middle::mir::BasicBlock;
+        use rustc_span::DUMMY_SP;
+        
+        let mut manager = BindingManager::new("test_func");
+        manager.register("_1".to_string(), None);
+        manager.register("_2".to_string(), None);
+        
+        // 绑定 _1 和 _2
+        manager.bind("_1", "_2").unwrap();
+        
+        // 创建drop_info
+        let drop_info = DropInfo {
+            dropped_by: "_1".to_string(),
+            location: DropLocation::Terminator {
+                bb: BasicBlock::from_u32(0),
+                span: DUMMY_SP,
+                kind: DropTerminatorKind::DropTerminator,
+            },
+            function_name: "test_func".to_string(),
+        };
+        
+        // 使用idrop_group_with_info记录drop
+        manager.idrop_group_with_info("_1", drop_info.clone());
+        
+        // 验证drop状态
+        assert!(manager.is_dropped("_1"));
+        assert!(manager.is_dropped("_2")); // _2和_1在同一个组
+        
+        // 验证drop_info被记录
+        let (root, _) = manager.find_group("_1").unwrap();
+        let info = LocalState::get_drop_info(&root, &manager.states);
+        assert!(info.is_some());
+        
+        let info = info.unwrap();
+        assert_eq!(info.dropped_by, "_1");
+        assert_eq!(info.function_name, "test_func");
+    }
+
+    /// 测试14: undrop应该清除drop_info
+    #[test]
+    fn test_undrop_clears_drop_info() {
+        use rustc_middle::mir::BasicBlock;
+        use rustc_span::DUMMY_SP;
+        
+        let mut manager = BindingManager::new("test_func");
+        manager.register("_1".to_string(), None);
+        
+        // 创建并记录drop
+        let drop_info = DropInfo {
+            dropped_by: "_1".to_string(),
+            location: DropLocation::Terminator {
+                bb: BasicBlock::from_u32(0),
+                span: DUMMY_SP,
+                kind: DropTerminatorKind::DropFunctionCall {
+                    function_name: "std::mem::drop".to_string(),
+                },
+            },
+            function_name: "test_func".to_string(),
+        };
+        
+        manager.idrop_group_with_info("_1", drop_info);
+        assert!(manager.is_dropped("_1"));
+        
+        let (root, _) = manager.find_group("_1").unwrap();
+        assert!(LocalState::get_drop_info(&root, &manager.states).is_some());
+        
+        // undrop应该清除drop_info
+        manager.undrop_group("_1");
+        assert!(!manager.is_dropped("_1"));
+        
+        let (root, _) = manager.find_group("_1").unwrap();
+        assert!(LocalState::get_drop_info(&root, &manager.states).is_none());
+    }
+
+    /// 测试15: 绑定组中任意变量drop都记录drop_info
+    #[test]
+    fn test_drop_info_in_group() {
+        use rustc_middle::mir::BasicBlock;
+        use rustc_span::DUMMY_SP;
+        
+        let mut manager = BindingManager::new("test_func");
+        manager.register("_1".to_string(), None);
+        manager.register("_2".to_string(), None);
+        manager.register("_3".to_string(), None);
+        
+        // 绑定 _1, _2, _3
+        manager.bind("_1", "_2").unwrap();
+        manager.bind("_2", "_3").unwrap();
+        
+        // drop _2 (组中的一个变量)
+        let drop_info = DropInfo {
+            dropped_by: "_2".to_string(),
+            location: DropLocation::Terminator {
+                bb: BasicBlock::from_u32(1),
+                span: DUMMY_SP,
+                kind: DropTerminatorKind::DropTerminator,
+            },
+            function_name: "test_func".to_string(),
+        };
+        
+        manager.idrop_group_with_info("_2", drop_info);
+        
+        // 所有组成员都应该被dropped
+        assert!(manager.is_dropped("_1"));
+        assert!(manager.is_dropped("_2"));
+        assert!(manager.is_dropped("_3"));
+        
+        // drop_info应该记录在root上
+        let (root, _) = manager.find_group("_1").unwrap();
+        let info = LocalState::get_drop_info(&root, &manager.states);
+        assert!(info.is_some());
+        
+        let info = info.unwrap();
+        assert_eq!(info.dropped_by, "_2"); // 记录了是_2触发的drop
     }
 }

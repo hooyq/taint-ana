@@ -416,7 +416,14 @@ pub fn detect_terminator<'tcx>(
             }
 
             // 直接调用 drop_check，让它处理所有情况（包括 double drop 检测）
-            drop_check(id, manager, term, bb);
+            drop_check(
+                id, 
+                manager, 
+                term, 
+                bb, 
+                fn_name, 
+                crate::state::DropTerminatorKind::DropTerminator
+            );
         }
         TerminatorKind::Call { func, args, destination, .. } => {
             let ty = func.ty(body, tcx);
@@ -442,7 +449,16 @@ pub fn detect_terminator<'tcx>(
                         }
 
                         // 直接调用 drop_check，让它统一处理所有情况（包括 double drop 检测）
-                        if let Err(e) = drop_check(arg_id.clone(), manager, term, bb) {
+                        if let Err(e) = drop_check(
+                            arg_id.clone(), 
+                            manager, 
+                            term, 
+                            bb, 
+                            fn_name,
+                            crate::state::DropTerminatorKind::DropFunctionCall { 
+                                function_name: name.to_string() 
+                            }
+                        ) {
                             eprintln!("⚠️  Warning: drop_check failed in Call: {}", e);
                         }
                     }
@@ -465,7 +481,7 @@ pub fn detect_terminator<'tcx>(
                             }
                         }
                     }
-                    println!("func name in blacklist: {:?}", name);
+                   // println!("func name in blacklist: {:?}", name);
                 }
 
                 // 检查函数调用参数
@@ -515,7 +531,14 @@ fn is_field_access(id: &str) -> bool {
     id.contains('.') || id.contains('(')
 }
 
-fn drop_check(id_opt: Option<String>, manager: &mut BindingManager, terminator: &Terminator<'_>, _bb: BasicBlock) -> Result<(), String> {
+fn drop_check(
+    id_opt: Option<String>, 
+    manager: &mut BindingManager, 
+    terminator: &Terminator<'_>, 
+    bb: BasicBlock,
+    fn_name: &str,
+    drop_kind: crate::state::DropTerminatorKind,
+) -> Result<(), String> {
     if let Some(ref id) = id_opt {
         // 确保已注册
         manager.register(id.clone(), None);
@@ -540,7 +563,17 @@ fn drop_check(id_opt: Option<String>, manager: &mut BindingManager, terminator: 
             Some(p) => p,
             None => {
                 // 如果找不到 root，说明还没有绑定关系，直接 drop
-                manager.idrop_group(id);
+                // 创建drop位置信息
+                let drop_info = crate::state::DropInfo {
+                    dropped_by: id.clone(),
+                    location: crate::state::DropLocation::Terminator {
+                        bb,
+                        span: terminator.source_info.span,
+                        kind: drop_kind.clone(),
+                    },
+                    function_name: fn_name.to_string(),
+                };
+                manager.idrop_group_with_info(id, drop_info);
                 return Ok(());
             }
         };
@@ -585,7 +618,17 @@ fn drop_check(id_opt: Option<String>, manager: &mut BindingManager, terminator: 
             }
         }
 
-        manager.idrop_group(id);
+        // 创建drop位置信息
+        let drop_info = crate::state::DropInfo {
+            dropped_by: id.clone(),
+            location: crate::state::DropLocation::Terminator {
+                bb,
+                span: terminator.source_info.span,
+                kind: drop_kind,
+            },
+            function_name: fn_name.to_string(),
+        };
+        manager.idrop_group_with_info(id, drop_info);
     } else {
         return Err(format!("id not found in {:?}", terminator));
     }
