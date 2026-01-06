@@ -17,7 +17,7 @@ pub struct DfsConfig {
 impl Default for DfsConfig {
     fn default() -> Self {
         Self {
-            k_predecessor: 2,  // 默认行为：每个 block 只访问一次
+            k_predecessor: 2,
             max_visits_per_block: 10,  // 默认最多访问 10 次
         }
     }
