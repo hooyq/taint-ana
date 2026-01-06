@@ -1,12 +1,11 @@
-# Taint Analysis - Function Signature Extractor
+# Taint-ana -- A Flow Sensitive Rust Bug Detector
 
-这是一个基于 rustc_middle 的 Rust 项目分析工具，用于提取项目中所有函数的签名。
+这是一个基于 rustc_middle 的 Rust 项目分析工具，用于分析Rust 项目并且找出其中的漏洞。
 
 ## 功能
 
-- 提取 Rust 项目中所有函数的签名
-- 显示函数名、参数类型、返回类型
-- 标识 unsafe 和 async 函数
+- 采取流敏感 + taint analysis的思想 进行漏洞挖掘
+- 目前支持UAF, double free
 
 ## 使用方法
 
