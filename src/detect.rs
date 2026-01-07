@@ -14,7 +14,7 @@ fn extract_base_local_from_place(place: &Place) -> Option<String> {
     Some(format!("_{}", local_usize))
 }
 
-/// 从 Place 提取完整的 local ID（String 格式，支持多层嵌套）
+/// 从 Place 提取完整的 local ID（String 格式，支持多层嵌套和解引用）
 ///
 /// 示例：
 /// - `_1` → "_1"
@@ -22,13 +22,17 @@ fn extract_base_local_from_place(place: &Place) -> Option<String> {
 /// - `_1.3.4.5` → "_1.3.4.5" (嵌套结构体字段)
 /// - `(_1 as Some).0` → "(_1 as 0).0" (枚举字段，variant 0, field 0)
 /// - `((_1.0) as Some).0` → "((_1.0) as 0).0" (结构体字段中的枚举字段)
-/// - `(*_1.0)` → "_1.0" (Deref 之前的字段)
+/// - `(*_1)` → "*_1" (解引用)
+/// - `(*_1).0` → "*_1.0" (先解引用再访问字段)
+/// - `(*(_1.0))` → "_1.0@deref" (先访问字段再解引用)
+/// - `(**_1)` → "**_1" (两次解引用)
 /// - `(_1.0)[_2]` → "_1.0" (Index 之前的字段)
 ///
 /// 策略：
 /// - Field: 追加 ".{field_index}"
 /// - Downcast + Field: 追加 " as {variant_index}).{field_index}"
-/// - Deref/Index/ConstantIndex/Subslice: 停止处理（返回当前构建的 ID）
+/// - Deref: 前置用 "*" 前缀，后置用 "@deref" 后缀
+/// - Index/ConstantIndex/Subslice: 停止处理（返回当前构建的 ID）
 /// - 其他: 停止处理
 fn extract_local_from_place(place: &Place) -> Option<String> {
     let base_local = extract_base_local_from_place(place)?;
@@ -39,7 +43,7 @@ fn extract_local_from_place(place: &Place) -> Option<String> {
         return Some(base_local);
     }
 
-    let mut current_id = base_local;
+    let mut current_id = base_local.clone();
     let mut i = 0;
 
     while i < projection.len() {
@@ -76,9 +80,17 @@ fn extract_local_from_place(place: &Place) -> Option<String> {
                 i += 1;
             }
             ProjectionElem::Deref => {
-                // Deref 之前可能有字段访问，已经处理了
-                // Deref 之后停止处理
-                break;
+                // 解引用处理：区分前置和后置
+                // 前置解引用：如果当前 ID 是基础变量或已经有前置解引用（以 * 开头）
+                // 后置解引用：如果当前 ID 已经包含字段访问（包含 . 或 (）
+                if current_id == base_local || current_id.starts_with('*') {
+                    // 前置解引用：添加 * 前缀
+                    current_id = format!("*{}", current_id);
+                } else {
+                    // 后置解引用：添加 @deref 后缀
+                    current_id = format!("{}@deref", current_id);
+                }
+                i += 1;
             }
             ProjectionElem::Index(_) |
             ProjectionElem::ConstantIndex { .. } |
@@ -130,41 +142,27 @@ static BLACKLIST: OnceLock<HashSet<String>> = OnceLock::new();
 pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: BasicBlock, fn_name: &str, body: &Body<'_>) {
     match &stmt.kind {
         StatementKind::Assign(box(left, rValue)) => {
-            let left_id = extract_base_local_from_place(left);
+            // 提取完整 ID（包括解引用和字段）用于重新赋值检测
+            let left_full_id = extract_local_from_place(left);
+            // 提取基础 ID 用于绑定操作（保持兼容性）
+            let left_base_id = extract_base_local_from_place(left);
             let rvalue = rValue.clone();
 
-            // 检查是否是重新赋值（左值是 local，没有字段访问）
-            // 如果是重新赋值，应该恢复 local 的 drop 状态
-            // 这解决了 MIR 中 drop 后立即重新赋值的问题（如 *manager = saved_state.clone()）
+            // 检查是否是重新赋值
+            // 对于任何形式的 place（包括 *_1.1, _4, (*_4) 等），如果之前被 dropped，重新赋值应该恢复状态
             // 关键：必须在检查右值 use 之前恢复状态，否则 use_check 会误报
-            if let Some(ref target_id) = left_id {
-                // 检查左值是否是：
-                // 1. 直接的 local（没有 projection），例如 `_4 = ...`
-                // 2. 只有一个 Deref 的投影，例如 `(*_4) = ...`
-                //
-                // 对于第二种情况，本质上也是"通过引用重新初始化这个 group 对应的值"，
-                // 对我们的抽象来说等价于"重新赋值 local 4"，应该恢复 drop 状态。
-                let is_direct_local = left.projection.is_empty();
-                let is_simple_deref = left.projection.len() == 1
-                    && matches!(left.projection[0], ProjectionElem::Deref);
-
-                if is_direct_local || is_simple_deref {
-                    // 如果 local 被 drop 了，任何赋值都可能是重新赋值
-                    // 这包括 Rvalue::Use（从其他值复制/移动）和其他类型的赋值
-                    let was_dropped = manager.is_dropped(target_id);
-                    if was_dropped {
-                        // 这是重新赋值，恢复 local 的 drop 状态
-                        if is_debug_enabled() {
-                            println!(
-                                "  [DEBUG] Reassignment detected: local {} is being reassigned in bb {:?}, restoring drop state (direct={}, deref={})",
-                                target_id,
-                                bb,
-                                is_direct_local,
-                                is_simple_deref
-                            );
-                        }
-                        manager.undrop_group(target_id);
+            if let Some(ref target_id) = left_full_id {
+                let was_dropped = manager.is_dropped(target_id);
+                if was_dropped {
+                    // 这是重新赋值，恢复 drop 状态
+                    if is_debug_enabled() {
+                        println!(
+                            "  [DEBUG] Reassignment detected: {} is being reassigned in bb {:?}, restoring drop state",
+                            target_id,
+                            bb
+                        );
                     }
+                    manager.undrop_group(target_id);
                 }
             }
             match rValue {
@@ -193,7 +191,8 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                             }
                             
                             // Move 操作：绑定源变量和目标变量
-                            if let (Some(ref source), Some(ref target)) = (source_id, left_id) {
+                            // 使用 left_base_id 作为绑定目标（保持兼容性）
+                            if let (Some(ref source), Some(ref target)) = (source_id, left_base_id) {
                                 if is_debug_enabled() {
                                     let source_dropped_before = manager.is_dropped(source);
                                     let target_dropped_before = manager.is_dropped(target);
@@ -235,7 +234,8 @@ pub fn detect_stmt(stmt: &Statement<'_>, manager: &mut BindingManager, bb: Basic
                     }
                     
                     // 绑定引用源和目标
-                    if let (Some(ref source), Some(ref target)) = (source_id, left_id) {
+                    // 使用 left_base_id 作为绑定目标（保持兼容性）
+                    if let (Some(ref source), Some(ref target)) = (source_id, left_base_id) {
                         if let Err(e) = manager.bind(source, target) {
                             eprintln!("⚠️  Warning: bind failed in Ref {} -> {}: {}", source, target, e);
                         }
@@ -325,14 +325,75 @@ fn is_debug_enabled() -> bool {
     std::env::var("DEBUG_MIR").is_ok()
 }
 
+/// 检查解引用 ID 的所有依赖
+/// 
+/// 使用解引用时（如 `*_21`），不仅要检查解引用本身是否有效，
+/// 还要检查基础指针（如 `_21`）是否仍然有效。
+/// 
+/// 示例：
+/// - `*_21` → 检查 `_21` 和 `*_21`
+/// - `**_21` → 检查 `_21`、`*_21` 和 `**_21`
+/// - `*_21.0` → 检查 `_21` 和 `*_21.0`
+/// - `_21.0@deref` → 检查 `_21.0` 和 `_21.0@deref`
+fn check_deref_dependencies(
+    id: &str,
+    manager: &mut BindingManager
+) -> Result<(), Vec<String>> {
+    let mut errors = Vec::new();
+    
+    // 提取所有前置解引用的基础ID
+    let base_id = id.trim_start_matches('*');
+    
+    if base_id != id && !base_id.is_empty() {
+        // 有前置解引用，检查基础ID
+        // 例如：id = "*_21", base_id = "_21"
+        // 或：id = "**_21", base_id = "_21"
+        
+        // 提取纯基础ID（去掉字段和后置deref）
+        let pure_base = base_id.split('.').next().unwrap_or(base_id)
+                                 .split('@').next().unwrap_or(base_id);
+        
+        if manager.is_dropped(pure_base) {
+            errors.push(format!(
+                "Cannot dereference {}: base pointer {} is dropped",
+                id, pure_base
+            ));
+        }
+    }
+    
+    // 检查后置解引用的基础部分
+    if id.contains("@deref") {
+        // 例如：id = "_21.0@deref"，需要检查 "_21.0"
+        let base_part = id.split("@deref").next().unwrap_or(id);
+        if !base_part.is_empty() && manager.is_dropped(base_part) {
+            errors.push(format!(
+                "Cannot dereference {}: base {} is dropped",
+                id, base_part
+            ));
+        }
+    }
+    
+    // 检查ID本身
+    if manager.is_dropped(id) {
+        errors.push(format!("Use after drop: {}", id));
+    }
+    
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 /// 统一的 use 检查函数（用于 Statement）
 /// 检查变量是否已被 drop，如果已 drop 则返回错误并打印 span
+/// 对于解引用（如 *_21），还会检查基础指针是否有效
 pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt: &Statement<'_>, bb: BasicBlock, fn_name: &str, body: &Body<'_>) -> Result<(), String> {
     if let Some(ref id) = id_opt {
         // 确保已注册
         manager.register(id.clone(), None);
 
-        // 检查是否被 drop
+        // 检查是否被 drop（包括依赖检查）
         if is_debug_enabled() {
             let dropped = manager.is_dropped(id);
             println!("  [DEBUG] use_check_stmt: local {} at {:?}, dropped={}", id, stmt.source_info.span, dropped);
@@ -344,10 +405,11 @@ pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt
             }
         }
 
-        if manager.is_dropped(id) {
-            // 使用新的报告函数
+        // 使用增强的依赖检查
+        if let Err(errors) = check_deref_dependencies(id, manager) {
+            // 报告第一个错误
             crate::report::report_use_after_drop_stmt(fn_name, stmt, bb, id, body, manager);
-            return Err(format!("Use after drop: {}", id));
+            return Err(errors.join("; "));
         }
     }
     Ok(())
@@ -355,15 +417,17 @@ pub fn use_check_stmt(id_opt: Option<String>, manager: &mut BindingManager, stmt
 
 /// 统一的 use 检查函数（用于 Terminator）
 /// 检查变量是否已被 drop，如果已 drop 则返回错误并打印 span
+/// 对于解引用（如 *_21），还会检查基础指针是否有效
 pub fn use_check_term(id_opt: Option<String>, manager: &mut BindingManager, term: &Terminator<'_>, bb: BasicBlock, fn_name: &str, body: &Body<'_>) -> Result<(), String> {
     if let Some(ref id) = id_opt {
         // 确保已注册
         manager.register(id.clone(), None);
 
-        if manager.is_dropped(id) {
-            // 使用新的报告函数
+        // 使用增强的依赖检查
+        if let Err(errors) = check_deref_dependencies(id, manager) {
+            // 报告第一个错误
             crate::report::report_use_after_drop_term(fn_name, term, bb, id, body, manager);
-            return Err(format!("Use after drop: {}", id));
+            return Err(errors.join("; "));
         }
     }
     Ok(())
@@ -404,13 +468,13 @@ pub fn detect_terminator<'tcx>(
             // Unreachable: 不可达代码，不涉及 use/drop
         }
         TerminatorKind::Drop { place, target: _, unwind: _, replace: _, .. } => {
-            // Drop terminator：直接调用 drop_check，让它统一处理所有情况
+            // Drop terminator：提取完整 ID（包括解引用如 *_21）
             let id = extract_local_from_place(place);
 
             if is_debug_enabled() {
                 if let Some(ref id_val) = id {
                     let dropped_before = manager.is_dropped(id_val);
-                    println!("  [DEBUG] Drop terminator: local {} at {:?}, dropped_before={}",
+                    println!("  [DEBUG] Drop: local {} at {:?}, dropped_before={}",
                              id_val, term.source_info.span, dropped_before);
                 }
             }
@@ -437,7 +501,7 @@ pub fn detect_terminator<'tcx>(
                 let is_drop_function = name_str.contains("::drop");
 
                 if is_drop_function && !args.is_empty() {
-                    // 提取第一个参数（通常是 Operand::Move）
+                    // 提取第一个参数（完整 ID，包括解引用）
                     let arg = &args[0];
                     let arg_id = extract_local_from_operand(&arg.node);
 

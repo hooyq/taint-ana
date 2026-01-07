@@ -1,0 +1,310 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn escape_to_global() -> () {
+    let mut _0: ();
+    let _1: ();
+    scope 1 {
+        debug h => const ();
+    }
+
+    bb0: {
+        _1 = gethostent() -> [return: bb1, unwind unreachable];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+static mut HOST_ENTRY: hostent = {
+    let mut _0: escape_to_global::hostent;
+    let mut _1: *mut i8;
+
+    bb0: {
+        StorageLive(_1);
+        ConstEvalCounter;
+        _1 = null_mut::<i8>() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = hostent { h_name: move _1 };
+        StorageDead(_1);
+        return;
+    }
+}
+
+static mut HOST_NAME: Option<Vec<u8>> = {
+    let mut _0: std::option::Option<std::vec::Vec<u8>>;
+
+    bb0: {
+        _0 = Option::<Vec<u8>>::None;
+        return;
+    }
+}
+
+static mut HOST_ALIASES: Option<Vec<Vec<u8>>> = {
+    let mut _0: std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>;
+
+    bb0: {
+        _0 = Option::<Vec<Vec<u8>>>::None;
+        return;
+    }
+}
+
+fn gethostent() -> () {
+    let mut _0: ();
+    let mut _1: std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>;
+    let mut _2: std::vec::Vec<std::vec::Vec<u8>>;
+    let mut _3: std::boxed::Box<[std::vec::Vec<u8>]>;
+    let mut _4: std::boxed::Box<[std::vec::Vec<u8>; 2]>;
+    let mut _5: usize;
+    let mut _6: usize;
+    let mut _7: *mut u8;
+    let mut _8: std::boxed::Box<[std::vec::Vec<u8>; 2]>;
+    let mut _9: std::vec::Vec<u8>;
+    let mut _10: std::boxed::Box<[u8]>;
+    let mut _11: usize;
+    let mut _12: usize;
+    let mut _13: *mut u8;
+    let mut _14: std::boxed::Box<[u8; 3]>;
+    let mut _15: std::vec::Vec<u8>;
+    let mut _16: std::boxed::Box<[u8]>;
+    let mut _17: usize;
+    let mut _18: usize;
+    let mut _19: *mut u8;
+    let mut _20: std::boxed::Box<[u8; 3]>;
+    let mut _21: *mut std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>;
+    let mut _22: &mut std::boxed::Box<[std::vec::Vec<u8>; 2]>;
+    let mut _23: ();
+    let mut _24: *const [u8; 3];
+    let mut _25: *const [u8; 3];
+    let mut _26: *const [std::vec::Vec<u8>; 2];
+    let mut _27: *const ();
+    let mut _28: usize;
+    let mut _29: usize;
+    let mut _30: usize;
+    let mut _31: usize;
+    let mut _32: bool;
+    let mut _33: *const ();
+    let mut _34: usize;
+    let mut _35: usize;
+    let mut _36: usize;
+    let mut _37: usize;
+    let mut _38: bool;
+    let mut _39: *const ();
+    let mut _40: usize;
+    let mut _41: usize;
+    let mut _42: usize;
+    let mut _43: usize;
+    let mut _44: bool;
+    let mut _45: *const ();
+    let mut _46: usize;
+    let mut _47: usize;
+    let mut _48: bool;
+    let mut _49: bool;
+    let mut _50: bool;
+    let mut _51: bool;
+    let mut _52: *const ();
+    let mut _53: usize;
+    let mut _54: usize;
+    let mut _55: bool;
+    let mut _56: bool;
+    let mut _57: bool;
+    let mut _58: bool;
+    let mut _59: *const ();
+    let mut _60: usize;
+    let mut _61: usize;
+    let mut _62: bool;
+    let mut _63: bool;
+    let mut _64: bool;
+    let mut _65: bool;
+    let mut _66: *const ();
+    let mut _67: usize;
+    let mut _68: usize;
+    let mut _69: bool;
+    let mut _70: bool;
+    let mut _71: bool;
+    let mut _72: bool;
+    let mut _73: *const ();
+    let mut _74: usize;
+    let mut _75: usize;
+    let mut _76: bool;
+    let mut _77: bool;
+    let mut _78: bool;
+    let mut _79: bool;
+
+    bb0: {
+        _5 = SizeOf([std::vec::Vec<u8>; 2]);
+        _6 = AlignOf([std::vec::Vec<u8>; 2]);
+        _7 = alloc::alloc::exchange_malloc(move _5, move _6) -> [return: bb1, unwind terminate(abi)];
+    }
+
+    bb1: {
+        _8 = ShallowInitBox(move _7, [std::vec::Vec<u8>; 2]);
+        _11 = SizeOf([u8; 3]);
+        _12 = AlignOf([u8; 3]);
+        _13 = alloc::alloc::exchange_malloc(move _11, move _12) -> [return: bb2, unwind: bb11];
+    }
+
+    bb2: {
+        _14 = ShallowInitBox(move _13, [u8; 3]);
+        _24 = copy ((_14.0: std::ptr::Unique<[u8; 3]>).0: std::ptr::NonNull<[u8; 3]>) as *const [u8; 3] (Transmute);
+        _73 = copy _24 as *const () (PtrToPtr);
+        _74 = copy _73 as usize (Transmute);
+        _75 = SizeOf([u8; 3]);
+        _76 = Ne(copy _75, const 0_usize);
+        _77 = Eq(copy _74, const 0_usize);
+        _78 = BitAnd(copy _77, copy _76);
+        _79 = Not(copy _78);
+        assert(copy _79, "null pointer dereference occurred") -> [success: bb19, unwind unreachable];
+    }
+
+    bb3: {
+        _17 = SizeOf([u8; 3]);
+        _18 = AlignOf([u8; 3]);
+        _19 = alloc::alloc::exchange_malloc(move _17, move _18) -> [return: bb4, unwind: bb9];
+    }
+
+    bb4: {
+        _20 = ShallowInitBox(move _19, [u8; 3]);
+        _25 = copy ((_20.0: std::ptr::Unique<[u8; 3]>).0: std::ptr::NonNull<[u8; 3]>) as *const [u8; 3] (Transmute);
+        _66 = copy _25 as *const () (PtrToPtr);
+        _67 = copy _66 as usize (Transmute);
+        _68 = SizeOf([u8; 3]);
+        _69 = Ne(copy _68, const 0_usize);
+        _70 = Eq(copy _67, const 0_usize);
+        _71 = BitAnd(copy _70, copy _69);
+        _72 = Not(copy _71);
+        assert(copy _72, "null pointer dereference occurred") -> [success: bb18, unwind unreachable];
+    }
+
+    bb5: {
+        _26 = copy ((_8.0: std::ptr::Unique<[std::vec::Vec<u8>; 2]>).0: std::ptr::NonNull<[std::vec::Vec<u8>; 2]>) as *const [std::vec::Vec<u8>; 2] (Transmute);
+        _39 = copy _26 as *const () (PtrToPtr);
+        _40 = copy _39 as usize (Transmute);
+        _41 = AlignOf([std::vec::Vec<u8>; 2]);
+        _42 = Sub(copy _41, const 1_usize);
+        _43 = BitAnd(copy _40, copy _42);
+        _44 = Eq(copy _43, const 0_usize);
+        assert(copy _44, "misaligned pointer dereference: address must be a multiple of {} but is {}", copy _41, copy _40) -> [success: bb14, unwind unreachable];
+    }
+
+    bb6: {
+        _1 = Option::<Vec<Vec<u8>>>::Some(move _2);
+        _21 = const {alloc6: *mut Option<Vec<Vec<u8>>>};
+        drop((*_21)) -> [return: bb7, unwind: bb8];
+    }
+
+    bb7: {
+        _33 = copy _21 as *const () (PtrToPtr);
+        _34 = copy _33 as usize (Transmute);
+        _35 = AlignOf(std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>);
+        _36 = Sub(copy _35, const 1_usize);
+        _37 = BitAnd(copy _34, copy _36);
+        _38 = Eq(copy _37, const 0_usize);
+        assert(copy _38, "misaligned pointer dereference: address must be a multiple of {} but is {}", copy _35, copy _34) -> [success: bb13, unwind unreachable];
+    }
+
+    bb8 (cleanup): {
+        _27 = copy _21 as *const () (PtrToPtr);
+        _28 = copy _27 as usize (Transmute);
+        _29 = AlignOf(std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>);
+        _30 = Sub(copy _29, const 1_usize);
+        _31 = BitAnd(copy _28, copy _30);
+        _32 = Eq(copy _31, const 0_usize);
+        assert(copy _32, "misaligned pointer dereference: address must be a multiple of {} but is {}", copy _29, copy _28) -> [success: bb12, unwind unreachable];
+    }
+
+    bb9 (cleanup): {
+        drop(_9) -> [return: bb11, unwind terminate(cleanup)];
+    }
+
+    bb10 (cleanup): {
+        terminate(abi);
+    }
+
+    bb11 (cleanup): {
+        _22 = &mut _8;
+        _23 = <Box<[Vec<u8>; 2]> as Drop>::drop(move _22) -> [return: bb20, unwind terminate(cleanup)];
+    }
+
+    bb12 (cleanup): {
+        _59 = copy _21 as *const () (PtrToPtr);
+        _60 = copy _59 as usize (Transmute);
+        _61 = SizeOf(std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>);
+        _62 = Ne(copy _61, const 0_usize);
+        _63 = Eq(copy _60, const 0_usize);
+        _64 = BitAnd(copy _63, copy _62);
+        _65 = Not(copy _64);
+        assert(copy _65, "null pointer dereference occurred") -> [success: bb17, unwind unreachable];
+    }
+
+    bb13: {
+        _52 = copy _21 as *const () (PtrToPtr);
+        _53 = copy _52 as usize (Transmute);
+        _54 = SizeOf(std::option::Option<std::vec::Vec<std::vec::Vec<u8>>>);
+        _55 = Ne(copy _54, const 0_usize);
+        _56 = Eq(copy _53, const 0_usize);
+        _57 = BitAnd(copy _56, copy _55);
+        _58 = Not(copy _57);
+        assert(copy _58, "null pointer dereference occurred") -> [success: bb16, unwind unreachable];
+    }
+
+    bb14: {
+        _45 = copy _26 as *const () (PtrToPtr);
+        _46 = copy _45 as usize (Transmute);
+        _47 = SizeOf([std::vec::Vec<u8>; 2]);
+        _48 = Ne(copy _47, const 0_usize);
+        _49 = Eq(copy _46, const 0_usize);
+        _50 = BitAnd(copy _49, copy _48);
+        _51 = Not(copy _50);
+        assert(copy _51, "null pointer dereference occurred") -> [success: bb15, unwind unreachable];
+    }
+
+    bb15: {
+        (*_26) = [move _9, move _15];
+        _4 = move _8;
+        _3 = move _4 as std::boxed::Box<[std::vec::Vec<u8>]> (PointerCoercion(Unsize, Implicit));
+        _2 = slice::<impl [Vec<u8>]>::into_vec::<std::alloc::Global>(move _3) -> [return: bb6, unwind: bb10];
+    }
+
+    bb16: {
+        (*_21) = move _1;
+        return;
+    }
+
+    bb17 (cleanup): {
+        (*_21) = move _1;
+        goto -> bb10;
+    }
+
+    bb18: {
+        (*_25) = [const 3_u8, const 4_u8, const 5_u8];
+        _16 = move _20 as std::boxed::Box<[u8]> (PointerCoercion(Unsize, Implicit));
+        _15 = slice::<impl [u8]>::into_vec::<std::alloc::Global>(move _16) -> [return: bb5, unwind: bb9];
+    }
+
+    bb19: {
+        (*_24) = [const 0_u8, const 1_u8, const 2_u8];
+        _10 = move _14 as std::boxed::Box<[u8]> (PointerCoercion(Unsize, Implicit));
+        _9 = slice::<impl [u8]>::into_vec::<std::alloc::Global>(move _10) -> [return: bb3, unwind: bb11];
+    }
+
+    bb20 (cleanup): {
+        goto -> bb10;
+    }
+}
+
+alloc6 (static: HOST_ALIASES, size: 24, align: 8) {
+    0x00 │ 00 00 00 00 00 00 00 80 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+    0x10 │ __ __ __ __ __ __ __ __                         │ ░░░░░░░░
+}
+
+fn main() -> () {
+    let mut _0: ();
+
+    bb0: {
+        return;
+    }
+}

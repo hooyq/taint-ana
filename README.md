@@ -38,6 +38,16 @@ cargo install --path .
 RUSTC_WRAPPER=taint-ana cargo build
 ```
 
+```bash
+cd /home/hyq/workspace/rustExperiment/asterinas
+
+# 设置 RUSTC_WRAPPER
+export RUSTC_WRAPPER=/home/hyq/.cargo/bin/taint-ana
+
+# 尝试构建
+cargo osdk build
+```
+
 ## 输出示例
 
 工具会输出所有函数的签名，格式如下：
