@@ -48,11 +48,3 @@ fn main() {
 }
 
 
-struct Foo <'a> {
-    x : * const String,
-}
-
-fn bar <'a, 'b> (arg1 : &'a String, arg2 : &'b String) -> Foo <'a>{
-    //...
-    Foo {x : arg2 as *const String}
-}
