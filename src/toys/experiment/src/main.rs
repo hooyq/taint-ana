@@ -1,57 +1,50 @@
-fn escape_to_global() {
-    use std::os::raw::{c_char, c_int};
-    use std::ptr;
+use std::mem;
 
-    #[repr(C)]
-    pub struct hostent {
-        h_name: *mut c_char,
-        h_aliases: *mut *mut c_char,
-        h_addrtype: c_int,
-        h_length: c_int,
-        h_addr_list: *mut *mut c_char,
+
+
+struct Buffer {
+    data: Vec<u8>,
+}
+
+impl Buffer {
+    // 构造一个指定长度的 buffer（内容初始化为 0）
+    fn allocate(size: usize) -> Self {
+        Buffer { data: vec![0u8; size] }
     }
 
-    static mut HOST_ENTRY: hostent = hostent {
-        h_name: ptr::null_mut(),
-        h_aliases: ptr::null_mut(),
-        h_addrtype: 0,
-        h_length: 0,
-        h_addr_list: ptr::null_mut(),
-    };
-
-    static mut HOST_NAME: Option<Vec<u8>> = None;
-    static mut HOST_ALIASES: Option<Vec<Vec<u8>>> = None;
-
-    pub unsafe extern "C" fn gethostent() -> *const hostent {
-        *ptr::addr_of_mut!(HOST_ALIASES) = Some(vec![vec![0, 1, 2], vec![3, 4, 5]]);
-        *ptr::addr_of_mut!(HOST_NAME) = Some(vec![b'a', b'b', b'c', 0]);
-
-        // 🔥 raw pointer + Vec interior
-        let aliases = (*ptr::addr_of_mut!(HOST_ALIASES)).as_mut().unwrap();
-        let mut alias_ptrs: Vec<*mut c_char> = aliases
-            .iter_mut()
-            .map(|v| v.as_mut_ptr() as *mut c_char)
-            .collect();
-        alias_ptrs.push(ptr::null_mut());
-
-        let entry = ptr::addr_of_mut!(HOST_ENTRY);
-        (*entry).h_name = (*ptr::addr_of_mut!(HOST_NAME))
-            .as_mut()
-            .unwrap()
-            .as_mut_ptr() as *mut c_char;
-        (*entry).h_aliases = alias_ptrs.as_mut_ptr(); // 🔥 points to stack Vec
-        (*entry).h_length = 4;
-
-        entry as *const hostent
+    fn len(&self) -> usize {
+        self.data.len()
     }
+
+    // 模拟拷贝数据到另一个 buffer
+    fn copy_to(&self, dst: &mut Buffer) -> usize {
+        let len = self.len().min(dst.len());
+        dst.data[..len].copy_from_slice(&self.data[..len]);
+        len
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.data.as_mut_ptr()
+    }
+}
+
+fn from(buffer: Buffer) -> Vec<u8> {
+    let mut slice = Buffer::allocate(buffer.len());
+    let len = buffer.copy_to(&mut slice);
+
+    // ❗此处若不忘记 drop，会出现 double free，因为 Vec 会接管 slice.data 的内存
+    //mem::forget(slice);
 
     unsafe {
-        let h = gethostent();
-        // alias_ptrs 已 drop，h_aliases 悬垂
-        println!("{:?}", *(*h).h_aliases);
+        // 从裸指针构造 Vec，长度和容量必须对应
+        Vec::from_raw_parts(slice.as_mut_ptr(), len, buffer.len())
     }
 }
 
-fn main(){
-
+fn main() {
+    let b = Buffer { data: vec![1, 2, 3, 4, 5] };
+    let v = from(b);
+    println!("{:?}", v);
 }
+
+

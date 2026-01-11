@@ -2,10 +2,14 @@
 
 这是一个基于 rustc_middle 的 Rust 项目分析工具，用于分析Rust 项目并且找出其中的漏洞。
 
-## 功能
+## 介绍
+本项目是一个 flow sensitive的rust 分析工具
 
-- 采取流敏感 + taint analysis的思想 进行漏洞挖掘
-- 目前支持UAF, double free
+通过遍历mir basic block, 来模拟程序运行时，并且从中获取想要的信息来进一步分析
+
+目前结合taint-analysis的思想，可以对double free, UAF等经典漏洞进行分析和挖掘
+
+### 欢迎各界专业认识进行需求提供，帮助作者应用到更多真实场景下 谢谢！！！
 
 ## 使用方法
 
@@ -29,6 +33,7 @@ cargo install --path .
 在要分析的项目目录中运行：
 
 ```bash
+#under the dir of the target project
  cargo +nightly-2025-10-02 taint-ana
 ```
 
@@ -75,3 +80,14 @@ async fn my_crate::async_function() -> i32
 
 - cargo run --bin taint-ana -- path
 - cargo run --bin taint-ana -- .\src\toys\example.rs
+
+
+## sample
+```
+    cd src/toys/use_after_free
+    cargo +nightly-2025-10-02 taint-ana
+    
+```
+
+## Concept
+can see the ppt to understand the concept
